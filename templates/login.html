@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}Вход - CloudStorage{% endblock %}
+
+{% block content %}
+<div class="auth-container">
+    <div class="auth-card">
+        <div class="auth-header">
+            <h2>Вход в систему</h2>
+            <p>Введите учетные данные для доступа</p>
+        </div>
+        
+        <form method="POST" action="{{ url_for('auth.login') }}" class="auth-form">
+            <div class="form-group">
+                <label for="username">Имя пользователя</label>
+                <input type="text" id="username" name="username" required 
+                       placeholder="Введите имя пользователя" autocomplete="username">
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Пароль</label>
+                <input type="password" id="password" name="password" required 
+                       placeholder="Введите пароль" autocomplete="current-password">
+            </div>
+            
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Войти</button>
+            </div>
+            
+            <div class="auth-links">
+                <a href="#" class="forgot-password">Забыли пароль?</a>
+            </div>
+        </form>
+        
+        <div class="auth-info">
+            <p>По умолчанию:</p>
+            <code>Логин: admin | Пароль: admin123</code>
+        </div>
+    </div>
+</div>
+{% endblock %}

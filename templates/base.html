@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}CloudStorage{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>☁️</text></svg>">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <span class="cloud-icon">☁️</span>
+                <span>CloudStorage</span>
+            </div>
+            {% if session.get('user_id') %}
+            <div class="nav-menu">
+                <a href="{{ url_for('upload') }}" class="nav-link {% if request.endpoint == 'upload' %}active{% endif %}">
+                    📤 Облако
+                </a>
+                <a href="{{ url_for('logs') }}" class="nav-link {% if request.endpoint == 'logs' %}active{% endif %}">
+                    📋 Журнал
+                </a>
+                {% if session.get('is_admin') %}
+                <a href="{{ url_for('admin_panel') }}" class="nav-link {% if request.endpoint == 'admin_panel' %}active{% endif %}">
+                    ⚙️ Администрирование
+                </a>
+                {% endif %}
+            </div>
+            <div class="nav-user">
+                <div class="user-info">
+                    <span class="user-icon">👤</span>
+                    <span class="username">{{ session.get('username', 'Пользователь') }}</span>
+                    {% if session.get('is_admin') %}
+                    <span class="badge badge-admin" style="font-size: 0.7em; padding: 2px 6px;">Админ</span>
+                    {% endif %}
+                </div>
+                <a href="{{ url_for('auth.logout') }}" class="logout-btn">Выйти</a>
+            </div>
+            {% endif %}
+        </div>
+    </nav>
+
+    <main class="main-content">
+        <!-- Таймер сессии -->
+        <div id="session-timer" class="session-timer">
+            ⏱ <span id="timer-countdown">15:00</span>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flash-messages">
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category or 'info' }}">
+                            <span class="close-btn" onclick="this.parentElement.style.display='none'">&times;</span>
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        <p>&copy; 2026 HomeCloudStorage. Все права защищены.</p>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

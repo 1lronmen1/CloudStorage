@@ -1,0 +1,1101 @@
+{% extends "base.html" %}
+
+{% block title %}Загрузка файлов - CloudStorage{% endblock %}
+
+{% block content %}
+<div class="upload-container">
+    <div class="upload-header">
+        <h1>Загрузка файлов в облако</h1>
+        <div class="disk-info-panel" id="disk-info">
+            <div class="disk-info-item">
+                <span class="disk-label">💾 Диск:</span>
+                <span id="disk-drive">Загрузка...</span>
+            </div>
+            <div class="disk-info-item">
+                <span class="disk-label">💾 Всего:</span>
+                <span id="disk-total">Загрузка...</span>
+            </div>
+            <div class="disk-info-item">
+                <span class="disk-label">📊 Занято:</span>
+                <span id="disk-used">Загрузка...</span>
+            </div>
+            <div class="disk-info-item">
+                <span class="disk-label">✨ Свободно:</span>
+                <span id="disk-free">Загрузка...</span>
+            </div>
+            <div class="disk-progress-bar">
+                <div class="disk-progress-fill" id="disk-progress"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="upload-main">
+        <div class="directory-selector">
+            <label for="target-directory">Каталог для сохранения:</label>
+            <div class="directory-input-group">
+                <select id="target-directory" class="directory-select">
+                    {% for dir in directories %}
+                    <option value="{{ dir }}" {% if dir == 'NOSORT' %}selected{% endif %}>
+                        {{ dir }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <button type="button" id="refresh-dirs" class="btn btn-secondary" title="Обновить список каталогов">
+                    🔄
+                </button>
+                <input type="text" id="new-directory" class="directory-input"
+                       placeholder="Новый каталог...">
+                <button type="button" id="create-directory" class="btn btn-secondary">
+                    ➕ Создать
+                </button>
+            </div>
+            <div class="current-path" id="current-path">
+                Текущий путь: F:\CLOUD\NOSORT
+            </div>
+        </div>
+
+        <div class="upload-zone" id="upload-zone">
+            <div class="upload-zone-content">
+                <div class="upload-icon">📁</div>
+                <h3>Выберите файлы или перетащите их сюда</h3>
+                <p>Поддерживаются все типы файлов до 1 ГБ</p>
+                <input type="file" id="file-input" multiple hidden>
+                <button type="button" class="btn btn-primary" onclick="document.getElementById('file-input').click()">
+                    Выбрать файлы
+                </button>
+            </div>
+        </div>
+
+        <!-- Предпросмотр выбранных файлов -->
+        <div id="file-preview" class="file-preview" style="display: none;">
+            <div class="preview-header">
+                <h3>Выбранные файлы: <span id="file-count">0</span></h3>
+                <div class="preview-total-size">
+                    Общий размер: <strong id="total-size">0 B</strong>
+                </div>
+            </div>
+            <div id="file-list" class="file-list"></div>
+        </div>
+
+        <div class="upload-actions" style="display: none;" id="upload-actions">
+            <button type="button" id="upload-btn" class="btn btn-success btn-lg">
+                ⬆️ Загрузить
+            </button>
+            <button type="button" id="cancel-btn" class="btn btn-danger btn-lg">
+                ❌ Отменить
+            </button>
+        </div>
+
+        <!-- Прогресс-бар загрузки -->
+        <div id="upload-progress" class="upload-progress" style="display: none;">
+            <div class="progress-header">
+                <h3>Загрузка файлов...</h3>
+                <span id="progress-percent">0%</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <div class="progress-text" id="progress-text">Подготовка...</div>
+            <div class="progress-details" id="progress-details"></div>
+        </div>
+
+        <!-- Результаты загрузки -->
+        <div id="upload-results" class="upload-results" style="display: none;">
+            <div class="results-header">
+                <h3>Результаты загрузки</h3>
+            </div>
+            <div class="results-summary" id="results-summary"></div>
+            <div class="results-list" id="results-list"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для подтверждения создания каталога -->
+<div id="confirm-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Подтверждение создания каталога</h3>
+        </div>
+        <div class="modal-body">
+            <div class="confirm-icon">📁</div>
+            <p id="modal-message"></p>
+            <p class="modal-path" id="modal-path"></p>
+        </div>
+        <div class="modal-footer">
+            <button type="button" id="modal-confirm" class="btn btn-primary">✅ Да, создать</button>
+            <button type="button" id="modal-cancel" class="btn btn-secondary">❌ Отмена</button>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно с информацией о файле -->
+<div id="file-info-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Информация о файле</h3>
+        </div>
+        <div class="modal-body" id="file-info-content">
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('file-info-modal')">Закрыть</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Глобальные переменные
+let selectedFiles = [];
+let isUploading = false;
+
+// Инициализация при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+    // Загрузка информации о диске
+    updateDiskInfo();
+    // Обновление каждые 30 секунд
+    setInterval(updateDiskInfo, 30000);
+
+    // Инициализация обработчиков
+    initializeUploadZone();
+    initializeFileInput();
+    initializeButtons();
+
+    // Загрузка списка каталогов при запуске
+    loadDirectories();
+
+    // Обновление пути при изменении выбора
+    document.getElementById('target-directory').addEventListener('change', function() {
+        updateCurrentPath();
+    });
+
+    // Обработка Enter в поле нового каталога
+    document.getElementById('new-directory').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            createDirectory();
+        }
+    });
+});
+
+// Обновление информации о диске
+function updateDiskInfo() {
+    fetch('/get_disk_info')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const diskData = data.data;
+                document.getElementById('disk-drive').textContent = diskData.drive || 'F:\\';
+                document.getElementById('disk-total').textContent = diskData.total_gb + ' GB';
+                document.getElementById('disk-used').textContent =
+                    diskData.used_gb + ' GB (' + diskData.percent_used + '%)';
+                document.getElementById('disk-free').textContent =
+                    diskData.free_gb + ' GB (' + diskData.percent_free + '%)';
+
+                const progressBar = document.getElementById('disk-progress');
+                progressBar.style.width = diskData.percent_used + '%';
+
+                // Цвет прогресс-бара в зависимости от заполнения
+                if (diskData.percent_used > 90) {
+                    progressBar.style.background = '#dc3545';
+                } else if (diskData.percent_used > 70) {
+                    progressBar.style.background = '#ffc107';
+                } else {
+                    progressBar.style.background = 'linear-gradient(90deg, #28a745, #ffc107)';
+                }
+            } else {
+                console.error('Ошибка получения информации о диске:', data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Ошибка получения информации о диске:', error);
+            showNotification('Не удалось получить информацию о диске', 'warning');
+        });
+}
+
+// Инициализация зоны перетаскивания
+function initializeUploadZone() {
+    const uploadZone = document.getElementById('upload-zone');
+
+    // Предотвращаем поведение по умолчанию
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        uploadZone.addEventListener(eventName, preventDefaults, false);
+        document.body.addEventListener(eventName, preventDefaults, false);
+    });
+
+    // Подсветка при перетаскивании
+    ['dragenter', 'dragover'].forEach(eventName => {
+        uploadZone.addEventListener(eventName, () => {
+            uploadZone.classList.add('dragover');
+        }, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        uploadZone.addEventListener(eventName, () => {
+            uploadZone.classList.remove('dragover');
+        }, false);
+    });
+
+    // Обработка dropped files
+    uploadZone.addEventListener('drop', (e) => {
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            handleFiles(files);
+        }
+    }, false);
+}
+
+function preventDefaults(e) {
+    e.preventDefault();
+    e.stopPropagation();
+}
+
+// Инициализация выбора файлов через кнопку
+function initializeFileInput() {
+    document.getElementById('file-input').addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            handleFiles(e.target.files);
+        }
+    });
+}
+
+// Обработка выбранных файлов
+function handleFiles(files) {
+    if (isUploading) {
+        showNotification('Дождитесь окончания текущей загрузки', 'warning');
+        return;
+    }
+
+    // Добавляем новые файлы к уже выбранным
+    const newFiles = Array.from(files);
+
+    // Проверка на дубликаты
+    let duplicates = 0;
+    newFiles.forEach(newFile => {
+        const isDuplicate = selectedFiles.some(existingFile =>
+            existingFile.name === newFile.name &&
+            existingFile.size === newFile.size &&
+            existingFile.lastModified === newFile.lastModified
+        );
+        if (!isDuplicate) {
+            selectedFiles.push(newFile);
+        } else {
+            duplicates++;
+        }
+    });
+
+    if (duplicates > 0) {
+        showNotification(`Пропущено ${duplicates} дубликатов`, 'info');
+    }
+
+    // Проверка размера
+    const totalSize = selectedFiles.reduce((sum, file) => sum + file.size, 0);
+    if (totalSize > 1024 * 1024 * 1024) { // 1 GB
+        showNotification('Общий размер файлов превышает 1 ГБ', 'error');
+        selectedFiles = selectedFiles.filter(file => {
+            const newTotal = selectedFiles.reduce((s, f) => s + (f === file ? 0 : f.size), 0);
+            return newTotal <= 1024 * 1024 * 1024;
+        });
+    }
+
+    displayFilePreview();
+}
+
+// Отображение превью выбранных файлов
+function displayFilePreview() {
+    const preview = document.getElementById('file-preview');
+    const fileList = document.getElementById('file-list');
+    const actions = document.getElementById('upload-actions');
+
+    if (selectedFiles.length === 0) {
+        preview.style.display = 'none';
+        actions.style.display = 'none';
+        return;
+    }
+
+    preview.style.display = 'block';
+    actions.style.display = 'flex';
+
+    document.getElementById('file-count').textContent = selectedFiles.length;
+
+    let totalSize = 0;
+    fileList.innerHTML = '';
+
+    selectedFiles.forEach((file, index) => {
+        totalSize += file.size;
+
+        const fileItem = document.createElement('div');
+        fileItem.className = 'file-item';
+        fileItem.innerHTML = `
+            <div class="file-icon">${getFileIcon(file.name)}</div>
+            <div class="file-info">
+                <div class="file-name" title="${file.name}">${file.name}</div>
+                <div class="file-meta">
+                    <span class="file-size">${formatFileSize(file.size)}</span>
+                    <span class="file-date">${formatDate(file.lastModified)}</span>
+                </div>
+            </div>
+            <div class="file-actions">
+                <button class="file-info-btn" onclick="showFileInfo(${index})" title="Информация">
+                    ℹ️
+                </button>
+                <button class="file-remove" onclick="removeFile(${index})" title="Удалить из списка">
+                    ✕
+                </button>
+            </div>
+        `;
+        fileList.appendChild(fileItem);
+    });
+
+    document.getElementById('total-size').textContent = formatFileSize(totalSize);
+}
+
+// Получение иконки файла
+function getFileIcon(filename) {
+    const ext = filename.split('.').pop().toLowerCase();
+    const iconMap = {
+        // Изображения
+        'jpg': '🖼️', 'jpeg': '🖼️', 'png': '🖼️', 'gif': '🖼️',
+        'bmp': '🖼️', 'svg': '🖼️', 'webp': '🖼️', 'ico': '🖼️',
+        'heic': '📱', 'heif': '📱',
+        // Документы
+        'pdf': '📕', 'doc': '📘', 'docx': '📘', 'xls': '📗',
+        'xlsx': '📗', 'ppt': '📙', 'pptx': '📙', 'txt': '📄',
+        'csv': '📊', 'rtf': '📝', 'odt': '📝',
+        // Архивы
+        'zip': '📦', 'rar': '📦', '7z': '📦', 'tar': '📦',
+        'gz': '📦', 'bz2': '📦',
+        // Видео
+        'mp4': '🎬', 'avi': '🎬', 'mov': '🎬', 'mkv': '🎬',
+        'wmv': '🎬', 'flv': '🎬', 'webm': '🎬',
+        // Аудио
+        'mp3': '🎵', 'wav': '🎵', 'flac': '🎵', 'aac': '🎵',
+        'ogg': '🎵', 'wma': '🎵', 'm4a': '🎵',
+        // Код
+        'html': '💻', 'css': '💻', 'js': '💻', 'py': '💻',
+        'php': '💻', 'java': '💻', 'cpp': '💻', 'sql': '💻',
+        'json': '💻', 'xml': '💻',
+        // Системные
+        'exe': '⚙️', 'msi': '⚙️', 'apk': '📱', 'dmg': '💿',
+        'iso': '💿', 'img': '💿',
+    };
+    return iconMap[ext] || '📎';
+}
+
+// Форматирование размера файла
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// Форматирование даты
+function formatDate(timestamp) {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diff = now - date;
+
+    if (diff < 60000) return 'Только что';
+    if (diff < 3600000) return Math.floor(diff / 60000) + ' мин. назад';
+    if (diff < 86400000) return Math.floor(diff / 3600000) + ' ч. назад';
+
+    return date.toLocaleDateString('ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+}
+
+// Показать информацию о файле
+function showFileInfo(index) {
+    const file = selectedFiles[index];
+    const modal = document.getElementById('file-info-modal');
+    const content = document.getElementById('file-info-content');
+
+    content.innerHTML = `
+        <div class="file-info-detail">
+            <div class="file-info-icon">${getFileIcon(file.name)}</div>
+            <h4>${file.name}</h4>
+            <table class="info-table">
+                <tr><td>Размер:</td><td>${formatFileSize(file.size)}</td></tr>
+                <tr><td>Тип:</td><td>${file.type || 'Неизвестный'}</td></tr>
+                <tr><td>Изменен:</td><td>${new Date(file.lastModified).toLocaleString('ru-RU')}</td></tr>
+            </table>
+        </div>
+    `;
+
+    modal.style.display = 'flex';
+}
+
+// Удаление файла из списка
+function removeFile(index) {
+    selectedFiles.splice(index, 1);
+    displayFilePreview();
+}
+
+// Инициализация кнопок
+function initializeButtons() {
+    document.getElementById('upload-btn').addEventListener('click', startUpload);
+    document.getElementById('cancel-btn').addEventListener('click', cancelUpload);
+    document.getElementById('create-directory').addEventListener('click', createDirectory);
+    document.getElementById('refresh-dirs').addEventListener('click', loadDirectories);
+}
+
+// Загрузка списка каталогов
+function loadDirectories() {
+    fetch('/get_directories')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const select = document.getElementById('target-directory');
+                const currentValue = select.value;
+
+                // Очищаем список
+                select.innerHTML = '';
+
+                // Добавляем каталоги
+                data.directories.forEach(dir => {
+                    const option = document.createElement('option');
+                    option.value = dir;
+                    option.textContent = dir;
+                    if (dir === currentValue) {
+                        option.selected = true;
+                    }
+                    select.appendChild(option);
+                });
+
+                updateCurrentPath();
+            }
+        })
+        .catch(error => {
+            console.error('Ошибка загрузки каталогов:', error);
+        });
+}
+
+// Обновление текущего пути
+function updateCurrentPath() {
+    const select = document.getElementById('target-directory');
+    const currentDir = select.value;
+    document.getElementById('current-path').textContent =
+        `Текущий путь: F:\\CLOUD\\${currentDir}`;
+}
+
+// Создание нового каталога
+function createDirectory() {
+    const dirName = document.getElementById('new-directory').value.trim();
+
+    if (!dirName) {
+        showNotification('Введите имя каталога', 'warning');
+        return;
+    }
+
+    // Проверяем имя каталога
+    if (dirName.length > 100) {
+        showNotification('Имя каталога слишком длинное (максимум 100 символов)', 'warning');
+        return;
+    }
+
+    fetch('/check_directory', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ directory: dirName })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Каталог существует
+            addDirectoryToSelect(data.directory_name);
+            document.getElementById('new-directory').value = '';
+            showNotification(`Каталог "${data.directory_name}" выбран`, 'success');
+        } else if (data.full_path) {
+            // Каталог не существует, показываем модальное окно
+            document.getElementById('modal-message').textContent = data.message;
+            document.getElementById('modal-path').textContent = data.full_path;
+
+            const modal = document.getElementById('confirm-modal');
+            modal.style.display = 'flex';
+
+            document.getElementById('modal-confirm').onclick = () => {
+                modal.style.display = 'none';
+                createDirectoryOnServer(data.full_path, data.directory_name);
+            };
+
+            document.getElementById('modal-cancel').onclick = () => {
+                modal.style.display = 'none';
+            };
+        } else {
+            showNotification(data.message, 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Ошибка:', error);
+        showNotification('Ошибка проверки каталога', 'error');
+    });
+}
+
+// Создание каталога на сервере
+function createDirectoryOnServer(fullPath, dirName) {
+    fetch('/create_directory', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ full_path: fullPath })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showNotification(data.message, 'success');
+            addDirectoryToSelect(data.directory_name || dirName);
+            document.getElementById('new-directory').value = '';
+            loadDirectories(); // Обновляем список
+        } else {
+            showNotification(data.message, 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Ошибка:', error);
+        showNotification('Ошибка создания каталога', 'error');
+    });
+}
+
+// Добавление каталога в выпадающий список
+function addDirectoryToSelect(dirName) {
+    const select = document.getElementById('target-directory');
+
+    // Проверяем, есть ли уже такой каталог
+    for (let i = 0; i < select.options.length; i++) {
+        if (select.options[i].value === dirName) {
+            select.value = dirName;
+            updateCurrentPath();
+            return;
+        }
+    }
+
+    // Добавляем новый каталог
+    const option = document.createElement('option');
+    option.value = dirName;
+    option.textContent = dirName;
+    select.appendChild(option);
+    select.value = dirName;
+    updateCurrentPath();
+}
+
+// Начало загрузки файлов
+function startUpload() {
+    if (selectedFiles.length === 0) {
+        showNotification('Выберите файлы для загрузки', 'warning');
+        return;
+    }
+
+    if (isUploading) {
+        showNotification('Загрузка уже выполняется', 'warning');
+        return;
+    }
+
+    const directory = document.getElementById('target-directory').value;
+
+    // Проверяем свободное место
+    const totalSize = selectedFiles.reduce((sum, file) => sum + file.size, 0);
+    const freeSpaceText = document.getElementById('disk-free').textContent;
+    const freeSpace = parseFloat(freeSpaceText) * 1024 * 1024 * 1024; // Конвертируем GB в байты
+
+    if (totalSize > freeSpace) {
+        showNotification('Недостаточно свободного места на диске', 'error');
+        return;
+    }
+
+    // Блокируем интерфейс
+    isUploading = true;
+    document.getElementById('upload-btn').disabled = true;
+    document.getElementById('cancel-btn').disabled = true;
+
+    // Показываем прогресс
+    const progressDiv = document.getElementById('upload-progress');
+    const resultsDiv = document.getElementById('upload-results');
+    progressDiv.style.display = 'block';
+    resultsDiv.style.display = 'none';
+
+    document.getElementById('progress-fill').style.width = '0%';
+    document.getElementById('progress-percent').textContent = '0%';
+    document.getElementById('progress-text').textContent = 'Подготовка к загрузке...';
+    document.getElementById('progress-details').textContent = '';
+
+    // Формируем данные
+    const formData = new FormData();
+    selectedFiles.forEach(file => {
+        formData.append('files[]', file);
+    });
+    formData.append('directory', directory);
+
+    // Отправляем запрос
+    const xhr = new XMLHttpRequest();
+
+    // Прогресс загрузки
+    xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+            const percentComplete = (e.loaded / e.total) * 100;
+            updateProgress(percentComplete, e.loaded, e.total);
+        }
+    });
+
+    // Завершение загрузки
+    xhr.addEventListener('load', () => {
+        isUploading = false;
+        document.getElementById('upload-btn').disabled = false;
+        document.getElementById('cancel-btn').disabled = false;
+
+        try {
+            const response = JSON.parse(xhr.responseText);
+
+            if (response.success) {
+                showUploadResults(response);
+
+                if (response.total_uploaded > 0) {
+                    showNotification(
+                        `Успешно загружено: ${response.total_uploaded} файл(ов)` +
+                        (response.total_failed > 0 ? `, не удалось: ${response.total_failed}` : ''),
+                        'success'
+                    );
+                }
+
+                // Очищаем список файлов
+                selectedFiles = [];
+                displayFilePreview();
+                document.getElementById('file-input').value = '';
+
+                // Обновляем информацию о диске
+                updateDiskInfo();
+            } else {
+                if (response.directory_not_exists) {
+                    // Предлагаем создать каталог
+                    document.getElementById('modal-message').textContent =
+                        `Каталог "${response.directory}" не существует. Создать?`;
+                    document.getElementById('modal-path').textContent =
+                        `F:\\CLOUD\\${response.directory}`;
+
+                    const modal = document.getElementById('confirm-modal');
+                    modal.style.display = 'flex';
+
+                    document.getElementById('modal-confirm').onclick = () => {
+                        modal.style.display = 'none';
+                        const fullPath = `F:\\CLOUD\\${response.directory}`;
+                        createDirectoryOnServer(fullPath, response.directory);
+                    };
+
+                    document.getElementById('modal-cancel').onclick = () => {
+                        modal.style.display = 'none';
+                    };
+                } else {
+                    showNotification(response.message, 'error');
+                }
+            }
+        } catch (e) {
+            showNotification('Ошибка обработки ответа сервера', 'error');
+            console.error('Parse error:', e);
+        }
+
+        // Скрываем прогресс через 2 секунды
+        setTimeout(() => {
+            if (!isUploading) {
+                document.getElementById('upload-progress').style.display = 'none';
+            }
+        }, 2000);
+    });
+
+    // Ошибка запроса
+    xhr.addEventListener('error', () => {
+        isUploading = false;
+        document.getElementById('upload-btn').disabled = false;
+        document.getElementById('cancel-btn').disabled = false;
+        showNotification('Ошибка сети при загрузке файлов', 'error');
+        document.getElementById('upload-progress').style.display = 'none';
+    });
+
+    // Отмена запроса
+    xhr.addEventListener('abort', () => {
+        isUploading = false;
+        document.getElementById('upload-btn').disabled = false;
+        document.getElementById('cancel-btn').disabled = false;
+        showNotification('Загрузка отменена', 'warning');
+        document.getElementById('upload-progress').style.display = 'none';
+    });
+
+    // Отправка
+    xhr.open('POST', '/upload_files', true);
+    xhr.send(formData);
+}
+
+// Обновление прогресса загрузки
+function updateProgress(percent, loaded, total) {
+    const percentRounded = Math.round(percent);
+    document.getElementById('progress-fill').style.width = percent + '%';
+    document.getElementById('progress-percent').textContent = percentRounded + '%';
+    document.getElementById('progress-text').textContent = 'Загрузка...';
+    document.getElementById('progress-details').textContent =
+        formatFileSize(loaded) + ' / ' + formatFileSize(total);
+}
+
+// Отображение результатов загрузки
+function showUploadResults(response) {
+    const resultsDiv = document.getElementById('upload-results');
+    const summary = document.getElementById('results-summary');
+    const list = document.getElementById('results-list');
+
+    resultsDiv.style.display = 'block';
+
+    // Сводка
+    summary.innerHTML = `
+        <div class="result-item success">
+            <span>✅ Успешно загружено:</span>
+            <strong>${response.total_uploaded} файл(ов)</strong>
+            <span>(${response.total_size_formatted || formatFileSize(response.uploaded.reduce((s, f) => s + f.size, 0))})</span>
+        </div>
+        ${response.total_failed > 0 ? `
+        <div class="result-item error">
+            <span>❌ Ошибок:</span>
+            <strong>${response.total_failed} файл(ов)</strong>
+        </div>
+        ` : ''}
+    `;
+
+    // Список файлов
+    list.innerHTML = '<h4>Загруженные файлы:</h4>';
+
+    response.uploaded.forEach(file => {
+        list.innerHTML += `
+            <div class="uploaded-file-item">
+                <span class="file-icon-small">${getFileIcon(file.name)}</span>
+                <span class="file-name-small">${file.name}</span>
+                <span class="file-size-small">${file.size_formatted}</span>
+            </div>
+        `;
+    });
+
+    if (response.failed.length > 0) {
+        list.innerHTML += '<h4>Ошибки:</h4>';
+        response.failed.forEach(file => {
+            list.innerHTML += `
+                <div class="uploaded-file-item error">
+                    <span class="file-icon-small">❌</span>
+                    <span class="file-name-small">${file.name}</span>
+                    <span class="file-error">${file.error}</span>
+                </div>
+            `;
+        });
+    }
+
+    // Автоматически скрываем результаты через 10 секунд
+    setTimeout(() => {
+        resultsDiv.style.display = 'none';
+    }, 10000);
+}
+
+// Отмена загрузки
+function cancelUpload() {
+    if (isUploading) {
+        if (confirm('Вы уверены, что хотите отменить загрузку?')) {
+            // Здесь нужно реализовать отмену XHR запроса
+            showNotification('Загрузка отменена', 'warning');
+            isUploading = false;
+        }
+    } else {
+        selectedFiles = [];
+        document.getElementById('file-input').value = '';
+        displayFilePreview();
+        document.getElementById('upload-progress').style.display = 'none';
+        document.getElementById('upload-results').style.display = 'none';
+        showNotification('Выбор файлов отменен', 'info');
+    }
+}
+
+// Закрытие модальных окон
+function closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+// Закрытие модальных окон по клику вне их
+window.onclick = function(event) {
+    if (event.target.classList.contains('modal')) {
+        event.target.style.display = 'none';
+    }
+}
+
+// Уведомления
+function showNotification(message, type = 'info') {
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+
+    const icons = {
+        'info': 'ℹ️',
+        'success': '✅',
+        'warning': '⚠️',
+        'error': '❌'
+    };
+
+    toast.innerHTML = `
+        <span class="toast-icon">${icons[type] || '📢'}</span>
+        <span class="toast-message">${message}</span>
+        <button class="toast-close" onclick="this.parentElement.remove()">×</button>
+    `;
+
+    document.body.appendChild(toast);
+
+    // Анимация появления
+    setTimeout(() => toast.classList.add('show'), 100);
+
+    // Автоматическое скрытие
+    setTimeout(() => {
+        if (toast.parentElement) {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }
+    }, 4000);
+}
+
+// Добавляем стили для toast уведомлений, если их еще нет
+if (!document.getElementById('toast-styles')) {
+    const toastStyles = document.createElement('style');
+    toastStyles.id = 'toast-styles';
+    toastStyles.textContent = `
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: white;
+            z-index: 9999;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            max-width: 400px;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .toast-info { background-color: #17a2b8; }
+        .toast-success { background-color: #28a745; }
+        .toast-warning { background-color: #ffc107; color: #000; }
+        .toast-error { background-color: #dc3545; }
+
+        .toast-icon {
+            font-size: 1.2em;
+            flex-shrink: 0;
+        }
+
+        .toast-message {
+            flex: 1;
+        }
+
+        .toast-close {
+            background: none;
+            border: none;
+            color: inherit;
+            font-size: 1.2em;
+            cursor: pointer;
+            padding: 0 5px;
+            opacity: 0.7;
+            flex-shrink: 0;
+        }
+
+        .toast-close:hover {
+            opacity: 1;
+        }
+
+        @media (max-width: 768px) {
+            .toast {
+                left: 20px;
+                right: 20px;
+                bottom: 10px;
+                max-width: none;
+            }
+        }
+
+        /* Дополнительные стили для страницы загрузки */
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .progress-header h3 {
+            margin: 0;
+            font-size: 1.1em;
+        }
+
+        #progress-percent {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: var(--accent-color);
+        }
+
+        .file-meta {
+            display: flex;
+            gap: 15px;
+            margin-top: 3px;
+        }
+
+        .file-date {
+            font-size: 0.8em;
+            color: var(--text-secondary);
+        }
+
+        .file-actions {
+            display: flex;
+            gap: 5px;
+        }
+
+        .file-info-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 1.1em;
+            padding: 5px;
+            opacity: 0.7;
+            transition: opacity 0.3s;
+        }
+
+        .file-info-btn:hover {
+            opacity: 1;
+        }
+
+        .file-info-detail {
+            text-align: center;
+        }
+
+        .file-info-icon {
+            font-size: 4em;
+            margin-bottom: 15px;
+        }
+
+        .file-info-detail h4 {
+            margin-bottom: 15px;
+            word-break: break-all;
+        }
+
+        .info-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .info-table td {
+            padding: 8px;
+            border-bottom: 1px solid var(--border-color);
+            text-align: left;
+        }
+
+        .info-table td:first-child {
+            font-weight: bold;
+            width: 40%;
+            color: var(--text-secondary);
+        }
+
+        .upload-results {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 20px;
+        }
+
+        .results-header {
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .results-header h3 {
+            margin: 0;
+        }
+
+        .results-summary {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 15px;
+        }
+
+        .result-item {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .result-item.success { color: var(--success-color); }
+        .result-item.error { color: var(--danger-color); }
+
+        .uploaded-file-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .uploaded-file-item:last-child {
+            border-bottom: none;
+        }
+
+        .uploaded-file-item.error {
+            color: var(--danger-color);
+        }
+
+        .file-icon-small {
+            font-size: 1.2em;
+            width: 25px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .file-name-small {
+            flex: 1;
+            word-break: break-all;
+            font-size: 0.9em;
+        }
+
+        .file-size-small {
+            color: var(--text-secondary);
+            font-size: 0.85em;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .file-error {
+            color: var(--danger-color);
+            font-size: 0.85em;
+            flex-shrink: 0;
+        }
+
+        .confirm-icon {
+            font-size: 3em;
+            text-align: center;
+            margin-bottom: 15px;
+        }
+
+        .modal-path {
+            color: var(--accent-color);
+            font-size: 0.9em;
+            margin-top: 10px;
+            word-break: break-all;
+        }
+    `;
+    document.head.appendChild(toastStyles);
+}
+</script>
+{% endblock %}
