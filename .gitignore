@@ -1,6 +1,6 @@
 certs/
 logs/
-database/
+database/cloud_storage.db
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
